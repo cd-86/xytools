@@ -16,6 +16,8 @@
 #include "backends/imgui_impl_opengl3.h"
 #include <GLFW/glfw3.h>
 
+#include "xy2/mapx.h"
+
 Window::Window() {
     glfwSetErrorCallback(ErrorCallback);
 }
@@ -165,7 +167,8 @@ void Window::drawUI() {
             updateFileList(std::filesystem::path(m_fileListStatus.currentDirectory).parent_path().string());
         }
         ImGui::SameLine();
-        ImGui::Text(m_fileListStatus.currentDirectory.c_str());
+
+        ImGui::Text((char*)std::filesystem::path(m_fileListStatus.currentDirectory).u8string().data());
         ImGui::Separator();
         ImGui::BeginChild("FilesWindow");
         for (int i = 0; i < m_fileListStatus.fileList.size(); i++) {
@@ -272,15 +275,24 @@ int Window::eventLoop() {
 }
 
 void Window::updateFileList(const std::string &dir) {
-    m_fileListStatus.currentDirectory = dir.empty() ? std::filesystem::current_path().string() : dir;
-    m_fileListStatus.seletedIndex = -1;
-    m_fileListStatus.fileList.clear();
-    for (const auto &file: std::filesystem::directory_iterator(m_fileListStatus.currentDirectory)) {
-        m_fileListStatus.fileList.emplace_back(
-            file.path().filename().string(),
-            file.path().string(),
-            file.is_directory()
-        );
+    std::string dirPath = dir.empty() ? std::filesystem::current_path().string() : dir;
+    try
+    {
+        std::vector<FileInfo> files;
+        for (const auto &file: std::filesystem::directory_iterator(dirPath)) {
+            files.emplace_back(
+                (char*)file.path().filename().u8string().c_str(),
+                file.path().string(),
+                file.is_directory()
+            );
+        }
+        m_fileListStatus.currentDirectory = dirPath;
+        m_fileListStatus.seletedIndex = -1;
+        m_fileListStatus.fileList = files;
+    }
+    catch (std::exception &e)
+    {
+        std::cerr << e.what() << std::endl;
     }
 }
 
