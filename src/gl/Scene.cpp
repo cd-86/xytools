@@ -15,6 +15,7 @@ Scene::~Scene() {
 void Scene::drawScene() {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    m_frameID++;
     auto mat = m_projection * m_view;
     if (mapTileVisible)
         m_map.drawTile(mat);
@@ -24,6 +25,8 @@ void Scene::drawScene() {
 
     if (mapCellVisible)
         m_map.drawCell(mat);
+
+    m_shape.draw(mat);
 }
 
 void Scene::resetCamera() {

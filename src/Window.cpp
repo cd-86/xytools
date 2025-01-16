@@ -16,6 +16,7 @@
 #include "backends/imgui_impl_opengl3.h"
 #include <GLFW/glfw3.h>
 
+#include "Global.h"
 #include "xy2/mapx.h"
 
 Window::Window() {
@@ -34,7 +35,7 @@ bool Window::initWindow() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    m_window = glfwCreateWindow(640, 480, "XY Tools", nullptr, nullptr);
+    m_window = glfwCreateWindow(1200, 800, "XY Tools", nullptr, nullptr);
     if (!m_window) {
         glfwTerminate();
         return false;
@@ -52,12 +53,14 @@ bool Window::initWindow() {
         return false;
     }
 
-    updateFileList();
+    updateFileList(std::filesystem::current_path());
 
     glfwSetWindowSizeCallback(m_window, WindowSizeCallBack);
     glfwSetMouseButtonCallback(m_window, MouseButtonCallback);
     glfwSetCursorPosCallback(m_window, CursorPosCallback);
     glfwSetScrollCallback(m_window, ScrollCallback);
+
+    glfwSetDropCallback(m_window, DropCallback);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -120,6 +123,9 @@ void Window::drawUI() {
             if (ImGui::MenuItem("文件列表", nullptr, m_fileListWindowVisible)) {
                 m_fileListWindowVisible = !m_fileListWindowVisible;
             }
+            if (ImGui::MenuItem("WDF", nullptr, m_wdfWindowVisible)) {
+                m_wdfWindowVisible = !m_wdfWindowVisible;
+            }
             if (ImGui::MenuItem("属性", nullptr, m_attributeWindowVisible)) {
                 m_attributeWindowVisible = !m_attributeWindowVisible;
             }
@@ -134,19 +140,9 @@ void Window::drawUI() {
 
         // 帧数 和 scene 缩放比例
         {
-            m_fps.count++;
-            double deltaTime = glfwGetTime() - m_fps.lastFrameTime;
-            if (deltaTime >= 0.25f) {
-                m_fps.fps = m_fps.count / deltaTime;
-                std::stringstream ss;
-                ss << "FPS: " << m_fps.fps;
-                m_fps.fpsStr = ss.str();
-                m_fps.count = 0;
-                m_fps.lastFrameTime = glfwGetTime();
-            }
             std::stringstream ss;
             ss << "x: " << m_scene->getTranslate().x << " y: " << m_scene->getTranslate().y << " | " << (
-                1 / m_scene->getScale().x * 100) << "%%" << " | " << m_fps.fpsStr;
+                1 / m_scene->getScale().x * 100) << "%%" << " | " << Global::fpsStr;
             auto s = ss.str();
             ImGui::SameLine(
                 ImGui::GetWindowWidth() - ImGui::CalcTextSize(s.c_str()).x - ImGui::GetStyle().FramePadding.x * 4);
@@ -160,31 +156,66 @@ void Window::drawUI() {
     if (m_fileListWindowVisible) {
         // 设置窗口的位置和大小
         ImGui::SetNextWindowPos(ImVec2(0, ImGui::GetFrameHeight()), ImGuiCond_Appearing);
-        ImGui::SetNextWindowSize(ImVec2(250.f, ImGui::GetWindowHeight()), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(ImVec2(250.f, ImGui::GetMainViewport()->Size.y - ImGui::GetFrameHeight()),
+                                 ImGuiCond_Appearing);
 
         ImGui::Begin("文件列表", &m_fileListWindowVisible);
         if (ImGui::Button("<", {30.f, 0.f})) {
-            updateFileList(std::filesystem::path(m_fileListStatus.currentDirectory).parent_path().string());
+            updateFileList(m_fileListStatus.currentDirectory.parent_path());
         }
         ImGui::SameLine();
 
-        ImGui::Text((char*)std::filesystem::path(m_fileListStatus.currentDirectory).u8string().data());
+        ImGui::Text((char *) m_fileListStatus.currentDirectory.u8string().c_str());
         ImGui::Separator();
         ImGui::BeginChild("FilesWindow");
+        std::filesystem::path path;
+        int flag = 0;
         for (int i = 0; i < m_fileListStatus.fileList.size(); i++) {
-            if (ImGui::Selectable(m_fileListStatus.fileList[i].name.c_str(), i == m_fileListStatus.seletedIndex)) {
-                if (m_fileListStatus.fileList[i].isDirectory) {
-                    updateFileList(m_fileListStatus.fileList[i].path);
-                    break;
+            if (ImGui::Selectable(m_fileListStatus.fileList[i].first.c_str(), i == m_fileListStatus.seletedIndex)) {
+                if (m_fileListStatus.fileList[i].first.starts_with("[D]")) {
+                    path = m_fileListStatus.fileList[i].second;
+                    flag = 1;
                 }
                 m_fileListStatus.seletedIndex = i;
-                if (m_fileListStatus.fileList[i].name.ends_with(".map")) {
-                    m_scene->getMap().loadMap(m_fileListStatus.fileList[i].path);
+                if (m_fileListStatus.fileList[i].first.ends_with(".map")) {
+                    path = m_fileListStatus.fileList[i].second;
+                    flag = 2;
+                }
+                auto p = ++m_fileListStatus.fileList[i].first.crbegin();
+                if (*p == 'd' && *(++p) == 'w') {
+                    path = m_fileListStatus.fileList[i].second;
+                    flag = 3;
                 }
             }
         }
+
+        if (flag == 1) {
+            updateFileList(path);
+        } else if (flag == 2) {
+            m_scene->getMap().loadMap(path.string());
+        } else if (flag == 3) {
+            m_scene->getShape().loadWdf(path.string());
+        }
+
         ImGui::EndChild();
         ImGui::End();
+    }
+
+    // Wdf 文件列表
+    if (m_wdfWindowVisible) {
+        // 设置窗口的位置和大小
+        ImGui::SetNextWindowPos(ImVec2(250, ImGui::GetFrameHeight()), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(ImVec2(200.f, ImGui::GetMainViewport()->Size.y - ImGui::GetFrameHeight()),
+                                 ImGuiCond_Appearing);
+
+        if (ImGui::Begin("WDF", &m_wdfWindowVisible)) {
+            for (int i = 0; i < m_scene->getShape().wasList().size(); i++) {
+                if (ImGui::Selectable(m_scene->getShape().wasList()[i].first.c_str())) {
+                    m_scene->getShape().loadWas(m_scene->getShape().wasList()[i].second);
+                }
+            }
+            ImGui::End();
+        }
     }
 
     // 右侧属性列表
@@ -203,16 +234,15 @@ void Window::drawUI() {
         ImGui::Checkbox("显示 Cell", &m_scene->mapCellVisible);
         ImGui::SliderInt("Cell 点大小", &m_scene->getMap().pointSize, 1, 10);
         ImGui::Separator();
-        ImGui::LabelText("地图宽", "%d", m_scene->getMap().mapWidth);
-        ImGui::LabelText("地图高", "%d", m_scene->getMap().mapHeight);
-        ImGui::LabelText("Block 行", "%d", m_scene->getMap().mapBockRowCount);
-        ImGui::LabelText("Block 列", "%d", m_scene->getMap().mapBockColCount);
-        ImGui::LabelText("Block 宽", "%d", m_scene->getMap().mapBlockWidth);
-        ImGui::LabelText("Block 高", "%d", m_scene->getMap().mapBlockHeight);
+        ImGui::LabelText("地图宽", "%d", m_scene->getMap().mapWidth());
+        ImGui::LabelText("地图高", "%d", m_scene->getMap().mapHeight());
+        ImGui::LabelText("Block 行", "%d", m_scene->getMap().mapBockRowCount());
+        ImGui::LabelText("Block 列", "%d", m_scene->getMap().mapBockColCount());
+        ImGui::LabelText("Block 宽", "%d", m_scene->getMap().mapBlockWidth());
+        ImGui::LabelText("Block 高", "%d", m_scene->getMap().mapBlockHeight());
 
         ImGui::End();
     }
-
 
     // ImGui::ShowDemoWindow();
     //
@@ -259,6 +289,8 @@ int Window::run() {
 
 int Window::eventLoop() {
     while (!m_shouldClose) {
+        Global::update();
+
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         m_scene->drawScene();
 
@@ -274,24 +306,20 @@ int Window::eventLoop() {
     return 0;
 }
 
-void Window::updateFileList(const std::string &dir) {
-    std::string dirPath = dir.empty() ? std::filesystem::current_path().string() : dir;
-    try
-    {
-        std::vector<FileInfo> files;
-        for (const auto &file: std::filesystem::directory_iterator(dirPath)) {
-            files.emplace_back(
-                (char*)file.path().filename().u8string().c_str(),
-                file.path().string(),
-                file.is_directory()
-            );
+void Window::updateFileList(const std::filesystem::path &dir) {
+    try {
+        std::vector<std::pair<std::string, std::filesystem::path> > files;
+        for (const auto &file: std::filesystem::directory_iterator(dir)) {
+            std::stringstream ss;
+            ss << (file.is_directory() ? "[D] " : "[F] ");
+            ss << (char *) file.path().filename().u8string().c_str();
+            files.emplace_back(ss.str(), file);
         }
-        m_fileListStatus.currentDirectory = dirPath;
-        m_fileListStatus.seletedIndex = -1;
+        std::ranges::sort(files);
+        m_fileListStatus.currentDirectory = dir;
+        m_fileListStatus.seletedIndex = 0;
         m_fileListStatus.fileList = files;
-    }
-    catch (std::exception &e)
-    {
+    } catch (std::exception &e) {
         std::cerr << e.what() << std::endl;
     }
 }
@@ -324,4 +352,16 @@ void Window::ScrollCallback(GLFWwindow *window, double xoffset, double yoffset) 
     if (ImGui::GetIO().WantCaptureMouse)
         return;
     w->m_scene->wheelEvent(xoffset, yoffset);
+}
+
+void Window::DropCallback(GLFWwindow *window, int path_count, const char *paths[]) {
+    std::string path = paths[0];
+    if (path.ends_with(".map")) {
+        std::cout << "MAP: " << path << std::endl;
+        return;
+    }
+    auto p = ++path.crbegin();
+    if (*p == 'd' && *(++p) == 'w') {
+        std::cout << "WDF: " << path << std::endl;
+    }
 }

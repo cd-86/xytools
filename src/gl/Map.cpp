@@ -4,6 +4,8 @@
 #include <sstream>
 #include <ext/matrix_transform.hpp>
 #include <glad/glad.h>
+
+#include "Global.h"
 #include "xy2/mapx.h"
 
 const char *TILE_VERTEX_CODE = R"(
@@ -46,13 +48,26 @@ const char *POINT_VERTEX_CODE = R"(
     uniform int uPointSize;
     uniform mat4 uMatrix;
 
-    flat out int vMask;
+    out vec4 vColor;
 
     void main()
     {
         gl_PointSize = uPointSize;
 	    gl_Position = uMatrix * vec4(aPos.xy, 0.0, 1.0);
-        vMask = int(aPos.z);
+
+        switch (int(aPos.z)) {
+            case 0:
+                vColor = vec4(1.0, 1.0, 1.0, 1.0); // 白色
+                break;
+            case 1:
+                vColor = vec4(1.0, 0.0, 0.0, 1.0); // 红色
+                break;
+            case 2:
+                vColor = vec4(1.0, 1.0, 0.0, 1.0); // 黄色
+                break;
+            default:
+                vColor = vec4(0.0, 0.0, 0.0, 1.0); // 黑色
+        }
     }
 )";
 
@@ -61,11 +76,12 @@ const char *POINT_FRAGMENT_CODE = R"(
 
     out vec4 FragColor;
 
-    flat in int vMask;
+    in vec4 vColor;
 
     void main()
     {
-	    FragColor = vMask != 0 ? vec4(1.0, 0.0, 0.0, 1.0) : vec4(1.0, 1.0, 1.0, 1.0);
+
+	    FragColor = vColor;
     }
 )";
 
@@ -124,57 +140,29 @@ Map::~Map() {
 
 void Map::loadMap(const std::string &mapPath) {
     clear();
-    MapX map(mapPath, 0);
+    m_map = new MapX(mapPath, 0);
 
-    float yOff = -map.GetBlockHeight() / 2.0;
-    float xOff = map.GetBlockWidth() / 2.0;
-    for (int row = 0; row < map.GetRowCount(); row++) {
-        float y = yOff - row * map.GetBlockHeight();
-        for (int col = 0; col < map.GetColCount(); col++) {
-            float x = xOff + col * map.GetBlockWidth();
-            if (map.ReadJPEG(row, col)) {
-                unsigned int texture = addTexture(map.GetJPEGRGB(row * map.GetColCount() + col), map.GetBlockWidth(),
-                                                  map.GetBlockHeight(), 3);
-
-                glm::mat4 mat = glm::mat4(1);
-                mat = translate(mat, {x, y, 0});
-                mat = scale(mat, {map.GetBlockWidth(), map.GetBlockHeight(), 1});
-
-                m_tiles.push_back({mat, texture});
-                map.EraseJPEGRGB(row * map.GetColCount() + col);
-            }
-        }
-    }
-    mapWidth = map.GetWidth();
-    mapHeight = map.GetHeight();
-
-    mapBockRowCount = map.GetRowCount();
-    mapBockColCount = map.GetColCount();
-    mapBlockWidth = map.GetBlockWidth();
-    mapBlockHeight = map.GetBlockHeight();
-
-
-    for (int i = 0; i < map.GetMaskCount(); i++) {
+    for (int i = 0; i < m_map->GetMaskCount(); i++) {
         // map.ReadMask(i); // 这个会越界崩溃
-        map.ReadMaskOrigin(i);
+        m_map->ReadMaskOrigin(i);
 
-        auto info = map.GetMaskInfo(i);
+        auto info = m_map->GetMaskInfo(i);
 
-        unsigned int texture = addTexture(map.GetMaskRGBA(i), info->Width, info->Height, 4);
+        unsigned int texture = addTexture(m_map->GetMaskRGBA(i), info->Width, info->Height, 4);
 
         glm::mat4 mat = glm::mat4(1);
         mat = translate(mat, {info->StartX + info->Width / 2.f, -info->StartY - info->Height / 2.f, 0});
         mat = scale(mat, {info->Width, info->Height, 1});
 
         m_masks.push_back({mat, texture});
-        map.EraseMaskRGB(i);
+        m_map->EraseMaskRGB(i);
     }
 
-    std::vector<glm::vec3> vertices(map.GetCellColCount() * map.GetCellRowCount());
-    uint32_t *cell = map.GetCell();
-    for (int row = 0; row < map.GetCellRowCount(); row++) {
-        for (int col = 0; col < map.GetCellColCount(); col++) {
-            vertices[row * map.GetCellColCount() + col] = glm::vec3(col * 20 + 10, -row * 20 - 10, *cell);
+    std::vector<glm::vec3> vertices(m_map->GetCellColCount() * m_map->GetCellRowCount());
+    uint32_t *cell = m_map->GetCell();
+    for (int row = 0; row < m_map->GetCellRowCount(); row++) {
+        for (int col = 0; col < m_map->GetCellColCount(); col++) {
+            vertices[row * m_map->GetCellColCount() + col] = glm::vec3(col * 20 + 10, -row * 20 - 10, *cell);
             cell++;
         }
     }
@@ -184,13 +172,17 @@ void Map::loadMap(const std::string &mapPath) {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     // 让地图居中
-    setPosition({-mapWidth / 2.f, mapHeight / 2.f});
+    // setPosition({-m_map->GetWidth() / 2.f, m_map->GetHeight() / 2.f});
 }
 
 void Map::clear() {
     m_pointCount = 0;
+    if (m_map) {
+        delete m_map;
+        m_map = nullptr;
+    }
     for (auto &tile: m_tiles) {
-        glDeleteTextures(1, &tile.texture);
+        glDeleteTextures(1, &tile.second.texture);
     }
     m_tiles.clear();
     for (auto &mask: m_masks) {
@@ -212,37 +204,75 @@ void Map::setScale(const glm::vec2 &scale) {
 }
 
 void Map::drawTile(const glm::mat4 &matrix) {
-    glm::mat4 mat = matrix * m_matrix;
+    if (!m_map)
+        return;
+    if (Global::frameID != m_frame.frameID)
+        updateFrameProp(matrix, Global::frameID);
+
     m_tileShader.use();
     glBindVertexArray(m_tileVAO);
-    for (auto &tile: m_tiles) {
-        glBindTexture(GL_TEXTURE_2D, tile.texture);
-        glActiveTexture(GL_TEXTURE0);
-        // m_tileShader.setUniform(m_uTextureLocation, 0);
-        m_tileShader.setUniform(m_uTileMatrixLocation, mat * tile.matrix);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    int left = glm::clamp((int) m_frame.left / m_map->GetBlockWidth(), 0, m_map->GetColCount());
+    int top = glm::clamp((int) -m_frame.top / m_map->GetBlockHeight(), 0, m_map->GetRowCount());
+    int right = glm::clamp((int) ceil(m_frame.right / m_map->GetBlockWidth()), 0, m_map->GetColCount());
+    int bottom = glm::clamp((int) ceil(-m_frame.bottom / m_map->GetBlockHeight()), 0, m_map->GetRowCount());
+
+    for (int t = top; t < bottom; t++) {
+        for (int l = left; l < right; l++) {
+            int i = t * m_map->GetColCount() + l;
+            if (!m_tiles.contains(i)) {
+                if (!m_map->ReadJPEG(i)) {
+                    m_tiles[i] = {0,0};
+                    continue;
+                }
+                auto texture = addTexture(m_map->GetJPEGRGB(i), m_map->GetBlockWidth(), m_map->GetBlockHeight(),
+                                          3);
+                glm::mat4 mat = glm::mat4(1);
+                mat = translate(mat, {
+                                    l * m_map->GetBlockWidth() + m_map->GetBlockWidth() / 2.0,
+                                    -t * m_map->GetBlockHeight() - m_map->GetBlockHeight() / 2.0, 0
+                                });
+                mat = scale(mat, {m_map->GetBlockWidth(), m_map->GetBlockHeight(), 1});
+                m_tiles[i] = {mat, texture};
+
+                m_map->EraseJPEGRGB(i);
+            }
+            if (!m_tiles[i].texture)
+                continue;
+            glBindTexture(GL_TEXTURE_2D, m_tiles[i].texture);
+            glActiveTexture(GL_TEXTURE0);
+            // m_tileShader.setUniform(m_uTextureLocation, 0);
+            m_tileShader.setUniform(m_uTileMatrixLocation, m_frame.matrix * m_tiles[i].matrix);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        }
     }
 }
 
 void Map::drawMask(const glm::mat4 &matrix) {
-    glm::mat4 mat = matrix * m_matrix;
+    if (!m_map)
+        return;
+    if (Global::frameID != m_frame.frameID)
+        updateFrameProp(matrix, Global::frameID);
     m_tileShader.use();
     glBindVertexArray(m_tileVAO);
     for (auto &tile: m_masks) {
         glBindTexture(GL_TEXTURE_2D, tile.texture);
         glActiveTexture(GL_TEXTURE0);
         // m_tileShader.setUniform(m_uTextureLocation, 0);
-        m_tileShader.setUniform(m_uTileMatrixLocation, mat * tile.matrix);
+        m_tileShader.setUniform(m_uTileMatrixLocation, m_frame.matrix * tile.matrix);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
 }
 
 void Map::drawCell(const glm::mat4 &matrix) {
-    glm::mat4 mat = matrix * m_matrix;
+    if (!m_map)
+        return;
+    if (Global::frameID != m_frame.frameID)
+        updateFrameProp(matrix, Global::frameID);
     m_pointShader.use();
     glBindVertexArray(m_pointVAO);
     glBindBuffer(GL_ARRAY_BUFFER, m_pointVBO);
-    m_pointShader.setUniform(m_uPointMatrixLocation, mat);
+    m_pointShader.setUniform(m_uPointMatrixLocation, m_frame.matrix);
     m_pointShader.setUniform(m_uPointSizeLocation, pointSize);
     glEnable(GL_PROGRAM_POINT_SIZE);
     glDrawArrays(GL_POINTS, 0, m_pointCount);

@@ -2,9 +2,13 @@
 #define MAP_H
 #include <string>
 #include <glm.hpp>
+#include <map>
 #include <vector>
 
 #include "Shader.h"
+#include "xy2/mapx.h"
+
+class MapX;
 
 class Map {
     friend class Scene;
@@ -27,21 +31,35 @@ public:
 
     void setScale(const glm::vec2 &scale);
 
+    int mapWidth() const { return m_map ? m_map->GetWidth() : 0; }
+    int mapHeight() const { return m_map ? m_map->GetHeight() : 0; }
+
+    int mapBockRowCount() const { return m_map ? m_map->GetRowCount() : 0; }
+    int mapBockColCount() const { return m_map ? m_map->GetColCount() : 0; }
+    int mapBlockWidth() const { return m_map ? m_map->GetBlockWidth() : 0; }
+    int mapBlockHeight() const { return m_map ? m_map->GetBlockHeight() : 0; }
+
 private:
+    void updateFrameProp(const glm::mat4 &matrix, int frameNum) {
+        m_frame.matrix = matrix * m_matrix;
+        glm::mat4 inverMat = glm::inverse(m_frame.matrix);
+        glm::vec4 topLeft = inverMat * glm::vec4(-1, 1, 0, 1);
+        glm::vec4 bottomRight = inverMat * glm::vec4(1, -1, 0, 1);
+        m_frame.left = topLeft.x;
+        m_frame.top = topLeft.y;
+        m_frame.right = bottomRight.x;
+        m_frame.bottom = bottomRight.y;
+    }
+
     void drawTile(const glm::mat4 &matrix);
+
     void drawMask(const glm::mat4 &matrix);
+
     void drawCell(const glm::mat4 &matrix);
+
     unsigned int addTexture(void *buf, int width, int height, int channels);
 
 public:
-    int mapWidth{0};
-    int mapHeight{0};
-
-    int mapBockRowCount{0};
-    int mapBockColCount{0};
-    int mapBlockWidth{0};
-    int mapBlockHeight{0};
-
     int pointSize{2};
 
 private:
@@ -62,7 +80,17 @@ private:
     glm::vec2 m_scale;
     glm::mat4 m_matrix;
 
-    std::vector<Tile> m_tiles;
+    struct {
+        int frameID;
+        glm::mat4 matrix;
+        float left;
+        float top;
+        float right;
+        float bottom;
+    } m_frame;
+
+    MapX *m_map{nullptr};
+    std::map<int, Tile> m_tiles;
     std::vector<Tile> m_masks;
 };
 

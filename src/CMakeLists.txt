@@ -20,6 +20,14 @@ set(SRCS
         gl/Map.cpp
         xy2/mapx.cpp
         xy2/ujpeg.cpp
+        xy2/wdf.cpp
+        xy2/wdf.h
+        xy2/was.cpp
+        xy2/was.h
+        gl/Shape.cpp
+        gl/Shape.h
+        Global.cpp
+        Global.h
 )
 
 add_executable(XYTools ${SRCS} ${HRDS})

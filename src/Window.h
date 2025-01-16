@@ -1,16 +1,13 @@
 #ifndef WINDOW_H
 #define WINDOW_H
+#include <filesystem>
 #include <string>
 #include <vector>
 
+#include "xy2/wdf.h"
+
 struct GLFWwindow;
 class Scene;
-
-struct FileInfo {
-    std::string name;
-    std::string path;
-    bool isDirectory;
-};
 
 class Window {
 public:
@@ -29,7 +26,9 @@ public:
 private:
     int eventLoop();
 
-    void updateFileList(const std::string &dir = std::string());
+    void updateFileList(const std::filesystem::path &dir);
+
+    void loadWdf(const std::string &wdf);
 
     static void ErrorCallback(int error_code, const char *description);
 
@@ -41,6 +40,8 @@ private:
 
     static void ScrollCallback(GLFWwindow *window, double xoffset, double yoffset);
 
+    static void DropCallback(GLFWwindow* window, int path_count, const char* paths[]);
+
 private:
     GLFWwindow *m_window;
     Scene *m_scene;
@@ -49,17 +50,11 @@ private:
     bool m_shouldClose{false};
     bool m_fileListWindowVisible{true};
     bool m_attributeWindowVisible{true};
+    bool m_wdfWindowVisible{true};
 
     struct {
-        int count{0};
-        int fps{0};
-        double lastFrameTime{0};
-        std::string fpsStr;
-    } m_fps;
-
-    struct {
-        std::string currentDirectory;
-        std::vector<FileInfo> fileList;
+        std::filesystem::path currentDirectory;
+        std::vector<std::pair<std::string, std::filesystem::path>> fileList;
         int seletedIndex{-1};
     } m_fileListStatus;
 };
