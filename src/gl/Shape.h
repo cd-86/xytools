@@ -6,6 +6,7 @@
 #include "xy2/wdf.h"
 
 struct ShapeFrame {
+    glm::mat4 oriMatrix;
     glm::mat4 matrix;
     unsigned int texture;
 };
@@ -34,12 +35,18 @@ private:
     uint32_t addTexture(void *buf, int width, int height, int channels);
 
 private:
-    Shader m_shader;
-    unsigned int m_VAO;
-    unsigned int m_VBO;
+    Shader m_spriteShader;
+    unsigned int m_spriteVAO;
+    unsigned int m_spriteVBO;
+
+    Shader m_lineShader;
+    unsigned int m_lineVAO;
+    unsigned int m_lineVBO;
 
     int m_uMatrixLocation;
     int m_uTextureLocation;
+
+    int m_uLineMatrixLocation;
 
     glm::vec2 m_position;
     glm::vec2 m_scale;
