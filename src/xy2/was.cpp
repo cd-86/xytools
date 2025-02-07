@@ -44,7 +44,6 @@ Was::Was(const std::string &path, const WasInfo &info) {
             int frameSize = index < picNum - 1
                                 ? picOffsets[index + 1] - picOffsets[index]
                                 : info.size + info.offset - picOffsets[index];
-            frameSize += 16;
             file.seekg(picOffsets[index], std::ios::beg);
             std::vector<uint8_t> buf(frameSize);
             file.read((char *) buf.data(), frameSize);
@@ -203,23 +202,12 @@ void Was::readFrame(std::vector<uint8_t> &buf, const std::vector<RGBA> &palette,
         }
         if (*pData == 0 || !lineNotOver) {
             uint32_t repeat = frame.width - linePixels;
-            if (h > 0 && !linePixels) {
-                //法术处理
-                const uint8_t *last = buf.data() + frameLineOffset[h - 1];
-                if (*last != 0) {
-                    memcpy(frame.pixels.data() + pos, frame.pixels.data() + pos - frame.width,
-                           frame.width * sizeof(RGBA));
-                    pos += frame.width;
-                }
-            } else if (repeat > 0) {
+            if (repeat > 0) {
                 pos += repeat;
             }
         }
     }
     std::vector<uint32_t>().swap(frameLineOffset);
-
-    // frame.pixels.resize(frame.height * frame.width);
-    // memcpy(frame.pixels.data(), rgba.data(), frame.height* frame.width * sizeof(RGBA));
 }
 
 

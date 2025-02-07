@@ -39,8 +39,6 @@ const char *FRAGMENT_CODE = R"(
     void main()
     {
 	    FragColor = texture(uTexture, vTexCoord);
-        if (FragColor.a < 0.001)
-            FragColor += vec4(1,1,1,0.4);
     }
 )";
 
@@ -150,12 +148,9 @@ void Shape::loadWas(uint32_t hash) {
         m_frameList[i].resize(fullFrames[i].size());
         for (int j = 0; j < fullFrames[i].size(); j++) {
             uint32_t texture = addTexture((void*)fullFrames[i][j].pixels.data(), fullFrames[i][j].width, fullFrames[i][j].height, 4);
-
             glm::mat4 mat = glm::mat4(1);
-
             float x = ((float)fullFrames[i][j].width / 2.f) - fullFrames[i][j].x;
             float y =  -((float)fullFrames[i][j].height / 2.f) + fullFrames[i][j].y;
-            std::cout << i << " " << j << " " << fullFrames[i][j].y << " " << fullFrames[i][j].height << std::endl;
             mat = translate(mat, { x + i * 300, y, 0});
             mat = scale(mat, {fullFrames[i][j].width, fullFrames[i][j].height, 1});
             m_frameList[i][j] = {mat, texture};
@@ -189,32 +184,17 @@ void Shape::clear() {
 
 void Shape::draw(const glm::mat4 &matrix) {
     glm::mat4 mat = matrix * m_matrix;
-    int f = Global::time / 0.111111f;
+    int f = Global::time / 0.1f;
     m_shader.use();
     glBindVertexArray(m_VAO);
     for (auto &frames: m_frameList) {
         int i = f % frames.size();
-        for (int i = 0; i < frames.size(); i++) {
-            glBindTexture(GL_TEXTURE_2D, frames[i].texture);
-            glActiveTexture(GL_TEXTURE0);
-            // m_shader.setUniform(m_uTextureLocation, 0);
-            glm::mat4 m = glm::mat4(1);
-            m = translate(m, { i*100, 0, 0});
-            m_shader.setUniform(m_uMatrixLocation, mat * m * frames[i].matrix);
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        }
-        // glBindTexture(GL_TEXTURE_2D, frames[0].texture);
-        // glActiveTexture(GL_TEXTURE0);
-        // // m_shader.setUniform(m_uTextureLocation, 0);
-        // m_shader.setUniform(m_uMatrixLocation, mat * frames[0].matrix);
-        // glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glBindTexture(GL_TEXTURE_2D, frames[i].texture);
+        glActiveTexture(GL_TEXTURE0);
+        // m_shader.setUniform(m_uTextureLocation, 0);
+        m_shader.setUniform(m_uMatrixLocation, mat * frames[i].matrix);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
-
-    // glBindTexture(GL_TEXTURE_2D, m_sprite.texture);
-    // glActiveTexture(GL_TEXTURE0);
-    // // m_shader.setUniform(m_uTextureLocation, 0);
-    // m_shader.setUniform(m_uMatrixLocation, mat * m_sprite.matrix);
-    // glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
 uint32_t Shape::addTexture(void *buf, int width, int height, int channels) {
